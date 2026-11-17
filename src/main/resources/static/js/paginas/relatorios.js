@@ -105,8 +105,28 @@ if (pagina) {
         };
       },
     },
-    { titulo: 'Produção diária', desc: 'Etapas concluídas por dia', icone: 'factory', emDesenvolvimento: true },
-    { titulo: 'Produtividade', desc: 'Etapas concluídas por funcionário', icone: 'hard-hat', emDesenvolvimento: true },
+    {
+      titulo: 'Produção diária', desc: 'Etapas concluídas por dia (vw_produtividade_funcionario)', icone: 'factory',
+      async gerar() {
+        const g = await get('/dashboard/graficos/producao-diaria');
+        const valores = g.series?.[0]?.valores || [];
+        return {
+          colunas: ['Data', 'Etapas concluídas'],
+          linhas: (g.rotulos || []).map((r, i) => [r, String(valores[i] ?? 0)]),
+        };
+      },
+    },
+    {
+      titulo: 'Produtividade', desc: 'Etapas concluídas por funcionário (vw_produtividade_funcionario)', icone: 'hard-hat',
+      async gerar() {
+        const g = await get('/dashboard/graficos/etapas-por-funcionario');
+        const valores = g.series?.[0]?.valores || [];
+        return {
+          colunas: ['Funcionário', 'Etapas concluídas'],
+          linhas: (g.rotulos || []).map((r, i) => [r, String(valores[i] ?? 0)]),
+        };
+      },
+    },
   ];
 
   function csv(rel) {

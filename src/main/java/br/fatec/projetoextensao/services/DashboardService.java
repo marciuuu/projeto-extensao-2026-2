@@ -2,10 +2,12 @@ package br.fatec.projetoextensao.services;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,6 +16,7 @@ import br.fatec.projetoextensao.dtos.DashboardResumoResponse;
 import br.fatec.projetoextensao.dtos.EtapaFilaResponse;
 import br.fatec.projetoextensao.dtos.GraficoResponse;
 import br.fatec.projetoextensao.dtos.IndicadorRetrabalhoResponse;
+import br.fatec.projetoextensao.dtos.SerieGraficoResponse;
 import br.fatec.projetoextensao.entities.OrdemServicoEntity;
 import br.fatec.projetoextensao.enums.StatusOsEnum;
 import br.fatec.projetoextensao.exceptions.RecursoNaoEncontradoException;
@@ -64,6 +67,7 @@ public class DashboardService {
     private final ItemService itemService;
     private final ItemRotaProcessoService itemRotaProcessoService;
     private final TintaService tintaService;
+    private final JdbcClient jdbcClient;
 
     /** Indicadores do topo do dashboard. */
     @PreAuthorize(Perfis.QUALQUER)
@@ -106,7 +110,36 @@ public class DashboardService {
         if (g == null) {
             throw new RecursoNaoEncontradoException("Gráfico não encontrado.");
         }
+        Long viewsCriadas = jdbcClient
+                .sql("select count(*) from INFORMATION_SCHEMA.VIEWS where TABLE_NAME in ('vw_painel_ordens_servico', 'vw_produtividade_funcionario', 'vw_retrabalho_mensal')")
+                .query(Long.class)
+                .single();
+        if (viewsCriadas != null && viewsCriadas >= 3) {
+            return switch (nome) {
+                case "producao-diaria" -> consultarGrafico(nome, g, "Etapas concluídas",
+                        "select convert(varchar(5), data_producao, 103) as rotulo, sum(etapas_concluidas) as valor from dbo.vw_produtividade_funcionario group by data_producao order by data_producao asc");
+                case "retrabalho-mensal" -> consultarGrafico(nome, g, "% de retrabalho",
+                        "select right('0' + cast(mes as varchar(2)), 2) + '/' + cast(ano as varchar(4)) as rotulo, percentual_retrabalho as valor from dbo.vw_retrabalho_mensal order by mes_referencia asc");
+                case "os-por-status" -> consultarGrafico(nome, g, "OS",
+                        "select status_atual as rotulo, count(*) as valor from dbo.vw_painel_ordens_servico group by status_atual order by valor desc");
+                case "etapas-por-funcionario" -> consultarGrafico(nome, g, "Etapas concluídas",
+                        "select funcionario_nome as rotulo, sum(etapas_concluidas) as valor from dbo.vw_produtividade_funcionario group by funcionario_nome order by valor desc");
+                default -> new GraficoResponse(nome, g[0], g[1], List.of(), List.of(), false,
+                        "Em desenvolvimento: os dados deste gráfico ainda não foram programados (sugestão: view " + g[2] + ").");
+            };
+        }
         return new GraficoResponse(nome, g[0], g[1], List.of(), List.of(), false,
                 "Em desenvolvimento: os dados deste gráfico ainda não foram programados (sugestão: view " + g[2] + ").");
+    }
+
+    private GraficoResponse consultarGrafico(String nome, String[] g, String nomeSerie, String sql) {
+        List<String> rotulos = new ArrayList<>();
+        List<BigDecimal> valores = new ArrayList<>();
+        jdbcClient.sql(sql).query((rs) -> {
+            rotulos.add(rs.getString("rotulo"));
+            valores.add(rs.getBigDecimal("valor"));
+        });
+        return new GraficoResponse(nome, g[0], g[1], rotulos, List.of(new SerieGraficoResponse(nomeSerie, valores)),
+                true, null);
     }
 }
